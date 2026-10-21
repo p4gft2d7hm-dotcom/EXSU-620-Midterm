@@ -62,9 +62,9 @@ The hardware acknowledgement is the GP20 button. The web acknowledgement endpoin
 
 On a controlled bench network, the dashboard can also be opened from a phone at http://LAPTOP_IP:8000/. Do not expose the unauthenticated development service to the public internet.
 
-Alerts (advisory, critical, technical) are sent only to recipients registered in the dashboard's **Alert recipients** panel, with the consent box ticked. `notify.py` stores the consent time and consent-text version, keeps withdrawn recipients for audit, and logs every send attempt in the `deliveries` table: event time, send time, latency and result. Channels: WhatsApp through CallMeBot (on the project card) or ntfy as a fallback. Message texts are fixed and contain no patient data. See ../README.md for the registration steps. Run `python test_notify.py` (10 tests, no network needed).
+Alerts (advisory, critical, technical) are sent only to recipients registered in the dashboard's **Alert recipients** panel, with the consent box ticked. Recipients can be added, withdrawn or tested only from the laptop running the service. `notify.py` stores the consent time and consent-text version, keeps withdrawn recipients for audit, re-checks consent before each send, and logs every attempt in the `deliveries` table: event time, provider answer time and whether the provider accepted the request. Provider acceptance is not phone receipt. Channels: WhatsApp through CallMeBot (on the project card) or ntfy as a fallback. Message texts are fixed and contain no patient data. See ../README.md for the registration steps. Run `python test_notify.py` (13 tests, no network needed).
 
-The old `NTFY_TOPIC` environment variable is ignored. Use **Send test** after registering, and record phone receipt time against the logged send time for T08.
+The old `NTFY_TOPIC` environment variable is ignored. Use **Send test** after registering, and record phone receipt time by hand against the logged provider-accepted time for T08.
 
 ## Known open issues
 

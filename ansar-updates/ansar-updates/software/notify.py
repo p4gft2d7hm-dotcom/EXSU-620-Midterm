@@ -9,7 +9,13 @@ opted in, with the consent timestamp stored. This module enforces that:
     withdrawal timestamp.
   * Message text is fixed per event type and never contains patient data.
   * Every attempt is written to the deliveries table: who, which event, when the
-    event happened, when the send finished, whether it worked, and the latency.
+    event happened, when the provider answered, whether the provider ACCEPTED the
+    request, and that latency. Provider acceptance is not phone receipt: the time a
+    message actually appears on the phone is measured by hand in T08.
+  * Consent is re-checked immediately before each send, so a withdrawal recorded
+    while a dispatch is running stops every send that has not started yet.
+  * No database transaction is held open during a network call, so a slow provider
+    cannot block the telemetry writes from the patch.
 
 Channels
   callmebot : WhatsApp through CallMeBot (listed on the project card). Each person
@@ -52,6 +58,12 @@ class RegistrationError(ValueError):
 
 # ------------------------------------------------------------------- schema
 def init(con):
+    # A database made by the first draft of this module has a deliveries table with
+    # different columns. Keep it under another name rather than deleting evidence.
+    cols = [r[1] for r in con.execute("PRAGMA table_info(deliveries)").fetchall()]
+    if cols and "accepted" not in cols:
+        con.execute("ALTER TABLE deliveries RENAME TO deliveries_old_draft")
+        con.execute("DROP INDEX IF EXISTS i_deliv")
     con.execute("""CREATE TABLE IF NOT EXISTS recipients(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,              -- participant name or initials, never a patient
@@ -66,9 +78,9 @@ def init(con):
         recipient_id INTEGER NOT NULL,
         event TEXT NOT NULL,
         event_ts REAL NOT NULL,          -- when the patch event reached the laptop
-        sent_ts REAL NOT NULL,           -- when the send attempt finished
-        latency_s REAL NOT NULL,         -- sent_ts - event_ts (laptop side only)
-        ok INTEGER NOT NULL,
+        answered_ts REAL NOT NULL,       -- when the provider answered (or the attempt failed)
+        accept_latency_s REAL NOT NULL,  -- answered_ts - event_ts. NOT phone receipt time
+        accepted INTEGER NOT NULL,       -- 1 = provider accepted the request
         detail TEXT)""")
     con.execute("CREATE INDEX IF NOT EXISTS i_deliv ON deliveries(event_ts)")
 
@@ -140,7 +152,10 @@ def listing(con):
 
 # ------------------------------------------------------------------ sending
 def http_send(recipient, text, timeout=10):
-    """Real network send. Returns (ok, detail)."""
+    """Real network send. Returns (accepted, detail).
+    accepted means the provider took the request; it does not prove the phone got it.
+    For CallMeBot, which can answer HTTP 200 with an error text, a body containing
+    'error' is treated as not accepted. That is a heuristic, not a documented contract."""
     if recipient["channel"] == "callmebot":
         q = urllib.parse.urlencode({"phone": recipient["address"], "text": text,
                                     "apikey": recipient["apikey"] or ""})
@@ -159,26 +174,41 @@ def http_send(recipient, text, timeout=10):
         return False, "%s: %s" % (type(e).__name__, e)
 
 
+def is_active(con, recipient_id):
+    return con.execute("SELECT * FROM recipients WHERE id=? AND withdrawn_ts IS NULL",
+                       (recipient_id,)).fetchone()
+
+
+def log_attempt(con, recipient_id, event, event_ts, answered_ts, accepted, detail):
+    """Write one attempt and commit at once, so no write lock outlives this call."""
+    con.execute("INSERT INTO deliveries(recipient_id,event,event_ts,answered_ts,"
+                "accept_latency_s,accepted,detail) VALUES(?,?,?,?,?,?,?)",
+                (recipient_id, event, event_ts, answered_ts,
+                 round(answered_ts - event_ts, 3), 1 if accepted else 0, detail[:300]))
+    con.commit()
+
+
 def dispatch(con, event, event_ts, sender=http_send, clock=time.time):
     """Send one event to every consenting recipient and log each attempt.
-    Returns the number of successful deliveries."""
+    Returns the number of attempts the provider accepted."""
     if event not in TEXTS:
         return 0
     text = TEXTS[event]
-    sent = 0
-    for rec in active(con):
+    con.commit()                       # never start a network call inside a transaction
+    accepted = 0
+    for rid in [r["id"] for r in active(con)]:
+        rec = is_active(con, rid)      # consent re-checked right before this send
+        if rec is None:
+            continue
         ok, detail = sender(rec, text)
-        done = clock()
-        con.execute("INSERT INTO deliveries(recipient_id,event,event_ts,sent_ts,latency_s,ok,detail)"
-                    " VALUES(?,?,?,?,?,?,?)",
-                    (rec["id"], event, event_ts, done, round(done - event_ts, 3),
-                     1 if ok else 0, detail[:300]))
-        sent += 1 if ok else 0
-    return sent
+        log_attempt(con, rid, event, event_ts, clock(), ok, detail)
+        accepted += 1 if ok else 0
+    return accepted
 
 
 def deliveries(con, limit=100):
-    rows = con.execute("SELECT d.id,d.event,d.event_ts,d.sent_ts,d.latency_s,d.ok,d.detail,"
+    rows = con.execute("SELECT d.id,d.event,d.event_ts,d.answered_ts,d.accept_latency_s,"
+                       "d.accepted,d.detail,"
                        "r.name,r.channel FROM deliveries d JOIN recipients r ON r.id=d.recipient_id "
                        "ORDER BY d.id DESC LIMIT ?", (limit,)).fetchall()
     return [dict(r) for r in rows]

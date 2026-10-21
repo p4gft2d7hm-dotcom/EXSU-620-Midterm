@@ -1,6 +1,7 @@
 requirement_id,requirement,status,verification
-N01,Recipient is a registered course participant,NOT_IMPLEMENTED,Reject unregistered recipient
-N02,Consent timestamp UTC scope and channel are retained,NOT_IMPLEMENTED,Inspect persisted consent record
-N03,Active consent checked before every send and withdrawal enforced,NOT_IMPLEMENTED,Reject withdrawn recipient
-N04,Provider choice justified against listed resources,OPEN,Review rationale and any required acceptance
-N05,No patient identifiers in payload or evidence,REQUIRES_REVIEW,Inspect synthetic test payloads
+N01,Recipient is a registered course participant,PROCEDURAL_CONTROL,"Operator registers each participant in person at the service laptop; registry changes are refused (HTTP 403) from any other address. Code limits who can change the register, it cannot verify course membership. Verify: attempt registration from a phone on the Wi-Fi (expect 403) and record the in-person registrations"
+N02,Consent timestamp scope and channel are retained,IMPLEMENTED_NOT_VERIFIED_ON_PHONE,"recipients table stores consent_ts (Unix time, convert to UTC in the report), consent_version, channel and address; desktop tests pass. Verify: inspect the persisted record after a real registration"
+N03,Active consent checked before every send and withdrawal enforced,IMPLEMENTED_NOT_VERIFIED_ON_PHONE,"Consent re-checked immediately before each send; withdrawal before or during a dispatch stops later sends (desktop tests). Verify: withdraw a real recipient, raise an alert, confirm no message arrives"
+N04,Provider choice justified against listed resources,OPEN,"CallMeBot (listed on the card) is primary; ntfy (not listed) is a fallback. If ntfy is used, add the justification to the design rationale"
+N05,No patient identifiers in payload or evidence,IMPLEMENTED_NOT_VERIFIED_ON_PHONE,"Message texts are fixed per alarm class with no patient fields (desktop test). Verify: inspect the received messages on the phone and the stored deliveries rows"
+N06,Provider acceptance and phone receipt recorded separately,IMPLEMENTED_NOT_VERIFIED_ON_PHONE,"deliveries logs provider acceptance time and outcome; phone receipt time is recorded by hand during T08 against the logged time"

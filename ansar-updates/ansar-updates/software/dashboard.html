@@ -102,7 +102,7 @@ table.list button{padding:4px 10px;font-size:.9rem;margin-left:6px}
 
   <section>
     <h2>Alert recipients</h2>
-    <p class="note">Only course participants who opt in receive messages. Messages never contain patient information. The consent time is stored with each registration.</p>
+    <p class="note">Only course participants who opt in receive messages. Messages never contain patient information. The consent time is stored with each registration. Recipients are registered by the operator on the laptop running the service.</p>
     <form class="reg" id="regform">
       <label>Name or initials<input id="r-name" maxlength="60" required></label>
       <label>Channel
@@ -121,7 +121,8 @@ table.list button{padding:4px 10px;font-size:.9rem;margin-left:6px}
   </section>
 
   <section>
-    <h2>Message delivery log</h2>
+    <h2>Message log</h2>
+    <p class="note">"Accepted" means the messaging service took the request. It does not confirm that the phone received it; phone receipt is timed by hand during testing.</p>
     <table class="list"><tbody id="deliv"><tr><td>No messages sent yet</td></tr></tbody></table>
   </section>
 </main>
@@ -220,8 +221,12 @@ async function status(){
   }
   $("pos").textContent = POS[d.pos] || d.pos;
   const waiting = d.state==="critical" && d.acked;
+  // A positive countdown during critical means a turn was recorded after expiry;
+  // the alarm stays latched (card Figure 3) until it is acknowledged at the bedside.
+  const turnedNeedsAck = d.state==="critical" && !d.acked && d.remaining_s > 0;
   $("state").textContent = stale ? "Last known position"
-    : waiting ? "Acknowledged. Sound is off. Waiting for an effective turn" : STATE[d.state];
+    : waiting ? "Acknowledged. Sound is off. Waiting for an effective turn"
+    : turnedNeedsAck ? "Late turn recorded. Acknowledge to clear the alarm" : STATE[d.state];
   const overdue = d.remaining_s < 0;
   $("count").textContent = clock(Math.abs(d.remaining_s));
   $("countlabel").textContent = overdue ? "overdue. The clock resets when the patient is turned" : "until the next turn is due";
@@ -275,7 +280,8 @@ $("r-submit").onclick = async () => {
 async function act(id, what){
   const r = await fetch("/api/recipients/"+id+"/"+what, {method:"POST"});
   const j = await r.json();
-  if(what === "test") say(j.ok ? "Test message sent." : "Test failed: " + (j.detail || "unknown error"), j.ok);
+  if(!r.ok){ say(j.detail || "Request refused", false); return; }
+  if(what === "test") say(j.accepted ? "Provider accepted the test message. Check that it arrived on the phone." : "Provider did not accept it: " + (j.detail || "unknown error"), j.accepted);
   recipients(); deliveries();
 }
 
@@ -302,9 +308,9 @@ async function deliveries(){
   const tb = $("deliv"); tb.innerHTML = "";
   for(const d of rows){
     const tr = tb.insertRow();
-    cell(tr, new Date(d.sent_ts*1000).toLocaleTimeString());
+    cell(tr, new Date(d.answered_ts*1000).toLocaleTimeString());
     cell(tr, d.event + " to " + d.name);
-    cell(tr, d.ok ? "delivered in " + d.latency_s.toFixed(1) + " s" : "failed", d.ok ? "ok" : "fail");
+    cell(tr, d.accepted ? "accepted by provider after " + d.accept_latency_s.toFixed(1) + " s" : "not accepted", d.accepted ? "ok" : "fail");
   }
 }
 

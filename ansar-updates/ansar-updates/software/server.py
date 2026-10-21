@@ -21,7 +21,7 @@ import urllib.request
 from datetime import datetime, timedelta
 
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -265,8 +265,23 @@ def recipients():
         return notify.listing(con)
 
 
+LOCAL_HOSTS = {"127.0.0.1", "::1", "localhost"}
+
+
+def operator_only(request: Request):
+    """The recipient register is managed only at the laptop running the service.
+    Anyone else on the Wi-Fi can view the dashboard but cannot add, withdraw or
+    message recipients. This is the controlled registration procedure for the bench:
+    the operator registers each participant in person after they agree."""
+    host = request.client.host if request.client else ""
+    if host not in LOCAL_HOSTS:
+        raise HTTPException(status_code=403,
+                            detail="recipients can only be managed on the laptop running the service")
+
+
 @app.post("/api/recipients")
-def add_recipient(r: Registration):
+def add_recipient(r: Registration, request: Request):
+    operator_only(request)
     try:
         with db() as con:
             rid = notify.register(con, r.name, r.channel, r.address, r.consent, r.apikey)
@@ -276,7 +291,8 @@ def add_recipient(r: Registration):
 
 
 @app.post("/api/recipients/{rid}/withdraw")
-def withdraw_recipient(rid: int):
+def withdraw_recipient(rid: int, request: Request):
+    operator_only(request)
     with db() as con:
         if not notify.withdraw(con, rid):
             raise HTTPException(status_code=404, detail="no active recipient with that id")
@@ -284,20 +300,19 @@ def withdraw_recipient(rid: int):
 
 
 @app.post("/api/recipients/{rid}/test")
-def test_recipient(rid: int):
-    """Send the fixed test text to one active recipient and log it like an alert."""
+def test_recipient(rid: int, request: Request):
+    """Send the fixed test text to one active recipient and log it like an alert.
+    The network call happens outside any database transaction."""
+    operator_only(request)
     with db() as con:
-        rec = con.execute("SELECT * FROM recipients WHERE id=? AND withdrawn_ts IS NULL",
-                          (rid,)).fetchone()
-        if rec is None:
-            raise HTTPException(status_code=404, detail="no active recipient with that id")
-        t0 = time.time()
-        ok, detail = notify.http_send(rec, notify.TEXTS["test"])
-        done = time.time()
-        con.execute("INSERT INTO deliveries(recipient_id,event,event_ts,sent_ts,latency_s,ok,detail)"
-                    " VALUES(?,?,?,?,?,?,?)", (rid, "test", t0, done, round(done - t0, 3),
-                                               1 if ok else 0, detail[:300]))
-    return {"ok": ok, "detail": detail}
+        rec = notify.is_active(con, rid)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="no active recipient with that id")
+    t0 = time.time()
+    ok, detail = notify.http_send(rec, notify.TEXTS["test"])
+    with db() as con:
+        notify.log_attempt(con, rid, "test", t0, time.time(), ok, detail)
+    return {"accepted": ok, "detail": detail}
 
 
 @app.get("/api/deliveries")
