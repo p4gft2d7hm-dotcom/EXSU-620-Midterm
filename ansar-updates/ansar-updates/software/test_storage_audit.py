@@ -10,6 +10,8 @@ import sqlite3
 import contextlib
 import time
 
+import notify
+
 
 def main():
     source = ast.parse(Path(__file__).with_name('server.py').read_text())
@@ -25,7 +27,7 @@ def main():
         env = dict(sqlite3=sqlite3, datetime=datetime, timedelta=timedelta,
                    time=time, DB_PATH=':memory:',
                    SHIFT_STARTS=[7,15,23], latest={'t':0,'data':None},
-                   push=pushed.append)
+                   push=pushed.append, notify=notify)
         exec(compile(selected, 'server.py:SQLite helpers', 'exec'), env)
         env['db'] = lambda: connection
         env['init_db']()

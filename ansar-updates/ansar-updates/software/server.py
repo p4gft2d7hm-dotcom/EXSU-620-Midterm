@@ -21,13 +21,15 @@ import urllib.request
 from datetime import datetime, timedelta
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
+
+import notify
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(HERE, "patch.db")
 SHIFT_STARTS = [7, 15, 23]                  # hours of the day when a shift begins
-NTFY_TOPIC = os.environ.get("NTFY_TOPIC")   # optional phone push through ntfy.sh
 
 app = FastAPI(title="Repositioning patch")
 latest = {"t": 0.0, "data": None}
@@ -50,6 +52,7 @@ def init_db():
         con.execute("CREATE TABLE IF NOT EXISTS events(ts REAL, type TEXT, detail TEXT)")
         con.execute("CREATE INDEX IF NOT EXISTS i_samples ON samples(ts)")
         con.execute("CREATE INDEX IF NOT EXISTS i_events ON events(ts)")
+        notify.init(con)
 
 
 def store(msg):
@@ -68,20 +71,16 @@ def store(msg):
 
 
 def push(name):
-    """Send an alert to the registered phone. Does nothing unless NTFY_TOPIC is set."""
-    if not NTFY_TOPIC:
-        return
-    text = {"advisory": "Turn due in 15 minutes",
-            "critical": "Turn overdue. No effective turn recorded",
-            "technical": "Check the patch"}[name]
+    """Send an alert to every registered, consenting recipient (see notify.py).
+    Runs in the background so a slow network never delays the patch data."""
+    event_ts = time.time()
 
     def send():
         try:
-            req = urllib.request.Request("https://ntfy.sh/" + NTFY_TOPIC,
-                                         data=text.encode(), method="POST")
-            urllib.request.urlopen(req, timeout=5)
+            with db() as con:
+                notify.dispatch(con, name, event_ts)
         except Exception as e:
-            print("push failed:", e)
+            print("notification problem:", e)
     threading.Thread(target=send, daemon=True).start()
 
 
@@ -246,6 +245,67 @@ def events(limit: int = 200):
     return [dict(r) for r in rows]
 
 
+# ---------------------------------------------------------------- recipients
+class Registration(BaseModel):
+    name: str
+    channel: str
+    address: str
+    apikey: str = ""
+    consent: bool = False
+
+
+@app.get("/api/consent")
+def consent_text():
+    return {"version": notify.CONSENT_VERSION, "text": notify.CONSENT_TEXT}
+
+
+@app.get("/api/recipients")
+def recipients():
+    with db() as con:
+        return notify.listing(con)
+
+
+@app.post("/api/recipients")
+def add_recipient(r: Registration):
+    try:
+        with db() as con:
+            rid = notify.register(con, r.name, r.channel, r.address, r.consent, r.apikey)
+    except notify.RegistrationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"id": rid}
+
+
+@app.post("/api/recipients/{rid}/withdraw")
+def withdraw_recipient(rid: int):
+    with db() as con:
+        if not notify.withdraw(con, rid):
+            raise HTTPException(status_code=404, detail="no active recipient with that id")
+    return {"withdrawn": rid}
+
+
+@app.post("/api/recipients/{rid}/test")
+def test_recipient(rid: int):
+    """Send the fixed test text to one active recipient and log it like an alert."""
+    with db() as con:
+        rec = con.execute("SELECT * FROM recipients WHERE id=? AND withdrawn_ts IS NULL",
+                          (rid,)).fetchone()
+        if rec is None:
+            raise HTTPException(status_code=404, detail="no active recipient with that id")
+        t0 = time.time()
+        ok, detail = notify.http_send(rec, notify.TEXTS["test"])
+        done = time.time()
+        con.execute("INSERT INTO deliveries(recipient_id,event,event_ts,sent_ts,latency_s,ok,detail)"
+                    " VALUES(?,?,?,?,?,?,?)", (rid, "test", t0, done, round(done - t0, 3),
+                                               1 if ok else 0, detail[:300]))
+    return {"ok": ok, "detail": detail}
+
+
+@app.get("/api/deliveries")
+def delivery_log(limit: int = 100):
+    with db() as con:
+        return notify.deliveries(con, limit)
+
+
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--port", help="serial port of the Pico, for example COM5")
@@ -254,6 +314,8 @@ if __name__ == "__main__":
     args = p.parse_args()
     if not args.port and not args.simulate:
         p.error("give --port or --simulate")
+    if os.environ.get("NTFY_TOPIC"):
+        print("NTFY_TOPIC is no longer used. Register recipients on the dashboard instead.")
     init_db()
     sim["on"] = args.simulate
     target = simulate if args.simulate else lambda: read_serial(args.port)

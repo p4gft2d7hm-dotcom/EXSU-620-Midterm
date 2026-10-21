@@ -133,9 +133,9 @@ The endpoints are /api/status, /api/history, /api/events and /api/shift for read
 
 ### Notification recipients and provider rationale
 
-According to the supplied review of card page 8, NO IDENTIFIERS, recipients must be course participants who have consented, with a recorded consent timestamp. The current server has no recipient registry, consent history, withdrawal enforcement or delivery audit. A public ntfy topic alone cannot restrict subscribers to registered recipients. Do not describe this notification path as meeting the card or use it for course-recipient verification until these controls exist. Use local-output tests meanwhile; any network integration test requires an approved registered test recipient and must preserve its consent record.
+Card page 8 (NO IDENTIFIERS) requires message recipients to be course participants who have opted in, with the consent timestamp stored. The service implements this in notify.py: a recipients table (participant name or initials, channel, address, consent timestamp, consent-text version, withdrawal timestamp) and a deliveries table (event, recipient, event time, send time, latency, outcome, error detail). Registration is refused without explicit consent. Alerts are sent only to recipients with consent and no withdrawal. Withdrawn records are retained for audit. Message texts are fixed per alarm class and carry no patient data. API keys are not returned by the API and phone numbers are masked on the dashboard. Ten desktop tests cover these rules. Network delivery to real phones still has to be verified in T08.
 
-The card resource list is reported to name CallMeBot, Twilio and Meta WhatsApp, not ntfy. ntfy was inherited from the initial implementation because it offers a simple HTTP POST prototype interface. That explains the implementation choice but does not establish course acceptance or equivalent recipient controls. The group must choose an allowed provider or document and obtain any required acceptance for an alternative with appropriate access control; no provider account or recipient list was configured here. Required evidence: registered participant ID, consent timestamp (UTC), scope/channel, current active/withdrawn state, and consent check plus delivery outcome per send. Store no patient identifiers.
+The card resource list is reported to name CallMeBot, Twilio and Meta WhatsApp, not ntfy. ntfy was inherited from the initial implementation because it offers a simple HTTP POST prototype interface. That explains the implementation choice but does not establish course acceptance or equivalent recipient controls. The service now supports CallMeBot (WhatsApp, on the card list) as the primary channel, with ntfy as a fallback because CallMeBot activation can be delayed. If ntfy is used, the design rationale must state why. With ntfy, each recipient uses a private topic registered through the same consent flow. Required evidence: registered participant ID, consent timestamp (UTC), scope/channel, current active/withdrawn state, and consent check plus delivery outcome per send. Store no patient identifiers.
 
 ### Shift statistics and known limitations
 
@@ -166,7 +166,7 @@ Upright duration is currently upright sample count/60 minutes, assuming exactly 
 | M3 Embedded control | Raspberry Pi Pico 2 W, CircuitPython, code.py, turnlogic.py | Filter, classifier, turn/timer logic, JSON |
 | M4 Bedside outputs | NeoPixel assembly, PAM8302 amplifier and compatible speaker, pushbutton | Visual/audio state and acknowledgement |
 | M5 Laptop data service | USB cable, Python, pyserial, FastAPI, uvicorn, SQLite | Receive, persist, query and serve |
-| M6 User/notification | Browser, Chart.js, optional ntfy topic/subscriber phone | Display, optional browser sound and remote receipt |
+| M6 User/notification | Browser, Chart.js, recipient registry (notify.py), WhatsApp via CallMeBot or ntfy | Display, optional browser sound and remote receipt |
 
 ### Interface table
 
@@ -182,7 +182,7 @@ Upright duration is currently upright sample count/60 minutes, assuming exactly 
 | IF-08 | Pico -> laptop | USB serial, JSON lines nominally 1 Hz; host opens 115200 | Discover actual port; do not substitute a TTL-UART pin connection |
 | IF-09 | Service -> SQLite | Parameterised SQL; receipt timestamp seconds since epoch | patch.db beside server.py; WAL; separate DB for each run/mode |
 | IF-10 | Browser <-> service | HTTP JSON and HTML; status polling 1 s, history polling 5 s | Port 8000 default; bind 0.0.0.0; no authentication |
-| IF-11 | Service -> phone | Optional HTTPS POST to ntfy.sh/topic; receipt asynchronous | NTFY_TOPIC config; delivery not guaranteed or logged durably by baseline |
+| IF-11 | Service -> phone | HTTPS GET to CallMeBot or POST to ntfy.sh, only for consenting recipients | Every attempt logged in deliveries with latency and outcome; phone receipt time measured in T08 |
 | IF-12 | Reference -> verifier | Jig angles, video timestamps and human-scored turn labels | Independent scorer; synchronise with visible/audible cue; record uncertainty |
 
 This is an interface description of code assumptions, not a certified wiring specification. The electrical ranges of the actual carriers, LED assembly, amplifier and speaker remain to be checked. Do not use guessed voltage/current ratings to complete D3.

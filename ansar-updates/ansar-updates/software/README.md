@@ -58,18 +58,13 @@ COM5 is an example, not an established port. On macOS/Linux use the actual /dev/
 
 The hardware acknowledgement is the GP20 button. The web acknowledgement endpoint is deliberately simulator-only in this version. The board has no wireless telemetry implementation despite being a W model.
 
-## Optional phone notification - implementation not card-complete
+## Phone notifications - registered recipients with consent
 
-On a controlled bench network, open the laptop dashboard at http://LAPTOP_IP:8000/ from a phone. This is separate from push notification. Do not expose the unauthenticated development service to the public internet.
+On a controlled bench network, the dashboard can also be opened from a phone at http://LAPTOP_IP:8000/. Do not expose the unauthenticated development service to the public internet.
 
-The card page-8 requirement reported in the supplied review requires registered course-participant recipients and stored consent timestamps. This server does not implement that registry or enforce consent; public topic subscription is insufficient. Before enabling remote tests, implement and verify recipient registration, active consent, timestamp storage and withdrawal. The following is only the inherited provider configuration reference, not evidence of compliance:
+Alerts (advisory, critical, technical) are sent only to recipients registered in the dashboard's **Alert recipients** panel, with the consent box ticked. `notify.py` stores the consent time and consent-text version, keeps withdrawn recipients for audit, and logs every send attempt in the `deliveries` table: event time, send time, latency and result. Channels: WhatsApp through CallMeBot (on the project card) or ntfy as a fallback. Message texts are fixed and contain no patient data. See ../README.md for the registration steps. Run `python test_notify.py` (10 tests, no network needed).
 
-```powershell
-$env:NTFY_TOPIC = 'YOUR_DEDICATED_TEST_TOPIC'
-.venv\Scripts\python server.py --port COM5 --http 8000
-```
-
-The service sends generic advisory/critical/technical text when those events occur; it does not transmit a patient identity. Use synthetic bench data. Record phone receipt and failures in T08. A dashboard reachable on the phone does not prove a push was delivered.
+The old `NTFY_TOPIC` environment variable is ignored. Use **Send test** after registering, and record phone receipt time against the logged send time for T08.
 
 ## Known open issues
 

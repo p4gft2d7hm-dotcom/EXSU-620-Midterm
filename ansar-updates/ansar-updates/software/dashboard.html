@@ -40,6 +40,18 @@ button:focus-visible{outline:3px solid var(--technical);outline-offset:2px}
 .top{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:12px}
 .top span{color:var(--quiet)}
 .chart{height:220px}
+form.reg{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;align-items:end}
+form.reg label{display:flex;flex-direction:column;gap:4px;color:var(--quiet);font-size:.92rem}
+form.reg input,form.reg select{font:inherit;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink)}
+.consent{display:flex;gap:10px;align-items:flex-start;margin:12px 0 4px;color:var(--ink)}
+.consent input{margin-top:5px;width:18px;height:18px;flex:none}
+.note{color:var(--quiet);font-size:.92rem;margin:6px 0 0}
+.msg{min-height:1.4em;margin:8px 0 0;font-size:.95rem}
+.msg.bad{color:var(--critical)} .msg.good{color:var(--normal)}
+table.list td:first-child{width:auto;color:var(--ink)}
+table.list td{vertical-align:top}
+table.list button{padding:4px 10px;font-size:.9rem;margin-left:6px}
+.ok{color:var(--normal)} .fail{color:var(--critical)}
 </style>
 </head>
 <body>
@@ -86,6 +98,31 @@ button:focus-visible{outline:3px solid var(--technical);outline-offset:2px}
   <section>
     <h2>Recent events</h2>
     <table><tbody id="events"><tr><td></td><td>Nothing recorded yet</td><td></td></tr></tbody></table>
+  </section>
+
+  <section>
+    <h2>Alert recipients</h2>
+    <p class="note">Only course participants who opt in receive messages. Messages never contain patient information. The consent time is stored with each registration.</p>
+    <form class="reg" id="regform">
+      <label>Name or initials<input id="r-name" maxlength="60" required></label>
+      <label>Channel
+        <select id="r-channel">
+          <option value="callmebot">WhatsApp (CallMeBot)</option>
+          <option value="ntfy">ntfy push</option>
+        </select>
+      </label>
+      <label id="r-addr-label">Phone with country code<input id="r-addr" required placeholder="+15145550123"></label>
+      <label id="r-key-label">CallMeBot API key<input id="r-key" autocomplete="off"></label>
+    </form>
+    <label class="consent"><input type="checkbox" id="r-consent"><span id="r-consent-text">Loading consent text</span></label>
+    <button id="r-submit">Register</button>
+    <p class="msg" id="r-msg" role="status"></p>
+    <table class="list"><tbody id="recips"></tbody></table>
+  </section>
+
+  <section>
+    <h2>Message delivery log</h2>
+    <table class="list"><tbody id="deliv"><tr><td>No messages sent yet</td></tr></tbody></table>
   </section>
 </main>
 
@@ -207,9 +244,74 @@ async function status(){
       "</td><td>"+(POS[e.detail]||e.detail||"")+"</td></tr>").join("");
   }
 }
-status(); history();
+/* ---- recipients ---- */
+function cell(row, text, cls){ const td = row.insertCell(); td.textContent = text; if(cls) td.className = cls; return td; }
+function stamp(ts){ return ts ? new Date(ts*1000).toLocaleString() : ""; }
+function say(text, good){ $("r-msg").textContent = text; $("r-msg").className = "msg " + (good ? "good" : "bad"); }
+
+$("r-channel").onchange = () => {
+  const wa = $("r-channel").value === "callmebot";
+  $("r-addr-label").firstChild.textContent = wa ? "Phone with country code" : "Your ntfy topic (12+ characters)";
+  $("r-addr").placeholder = wa ? "+15145550123" : "exsu620-yourname-x7k2q";
+  $("r-key-label").hidden = !wa;
+};
+
+async function loadConsent(){
+  try{ const c = await (await fetch("/api/consent")).json();
+       $("r-consent-text").textContent = c.text + " (consent " + c.version + ")"; }catch(e){}
+}
+
+$("r-submit").onclick = async () => {
+  const body = {name:$("r-name").value, channel:$("r-channel").value, address:$("r-addr").value,
+                apikey:$("r-key").value, consent:$("r-consent").checked};
+  if(!body.consent){ say("Tick the consent box first. Nobody is registered without consent.", false); return; }
+  const r = await fetch("/api/recipients", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
+  const j = await r.json();
+  if(r.ok){ say("Registered. Use Send test to check that messages arrive.", true);
+            $("r-name").value = $("r-addr").value = $("r-key").value = ""; $("r-consent").checked = false; recipients(); }
+  else say(j.detail || "Registration failed", false);
+};
+
+async function act(id, what){
+  const r = await fetch("/api/recipients/"+id+"/"+what, {method:"POST"});
+  const j = await r.json();
+  if(what === "test") say(j.ok ? "Test message sent." : "Test failed: " + (j.detail || "unknown error"), j.ok);
+  recipients(); deliveries();
+}
+
+async function recipients(){
+  let rows; try{ rows = await (await fetch("/api/recipients")).json(); }catch(e){ return; }
+  const tb = $("recips"); tb.innerHTML = "";
+  if(!rows.length){ cell(tb.insertRow(), "No recipients registered. Alerts stay on the patch and this page only."); return; }
+  for(const r of rows){
+    const tr = tb.insertRow();
+    cell(tr, r.name + " \u00b7 " + (r.channel === "callmebot" ? "WhatsApp " : "ntfy ") + r.address);
+    cell(tr, "consent " + stamp(r.consent_ts));
+    const td = cell(tr, r.withdrawn_ts ? "withdrawn " + stamp(r.withdrawn_ts) : "");
+    if(!r.withdrawn_ts){
+      const t = document.createElement("button"); t.textContent = "Send test"; t.onclick = () => act(r.id, "test");
+      const w = document.createElement("button"); w.textContent = "Withdraw"; w.onclick = () => act(r.id, "withdraw");
+      td.append(t, w);
+    }
+  }
+}
+
+async function deliveries(){
+  let rows; try{ rows = await (await fetch("/api/deliveries?limit=10")).json(); }catch(e){ return; }
+  if(!rows.length) return;
+  const tb = $("deliv"); tb.innerHTML = "";
+  for(const d of rows){
+    const tr = tb.insertRow();
+    cell(tr, new Date(d.sent_ts*1000).toLocaleTimeString());
+    cell(tr, d.event + " to " + d.name);
+    cell(tr, d.ok ? "delivered in " + d.latency_s.toFixed(1) + " s" : "failed", d.ok ? "ok" : "fail");
+  }
+}
+
+status(); history(); loadConsent(); recipients(); deliveries();
 setInterval(status, 1000);
 setInterval(history, 5000);
+setInterval(deliveries, 5000);
 </script>
 </body>
 </html>
