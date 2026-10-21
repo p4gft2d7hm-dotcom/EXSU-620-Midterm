@@ -1,0 +1,1 @@
+run_id,sequence,source_monotonic_s,laptop_receipt_epoch_s,ax_m_s2,ay_m_s2,az_m_s2,roll_deg,pitch_deg,sensor_ok,still_metric,reference_roll_deg,reference_pitch_deg,position,state,remaining_s,configuration_revision,mode

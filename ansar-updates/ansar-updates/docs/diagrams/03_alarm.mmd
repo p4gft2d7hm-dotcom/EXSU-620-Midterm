@@ -1,0 +1,20 @@
+stateDiagram-v2
+  [*] --> Normal
+  Normal --> Advisory: remaining <= 900 s
+  Advisory --> Normal: accepted turn
+  Normal --> CriticalSound: remaining <= 0
+  Advisory --> CriticalSound: remaining <= 0
+  CriticalSound --> CriticalMuted: acknowledge
+  CriticalSound --> CriticalTurnSeen: accepted turn
+  CriticalMuted --> Normal: accepted turn
+  CriticalTurnSeen --> Normal: acknowledge
+  state TechnicalOverlay {
+    [*] --> Clear
+    Clear --> Technical: invalid / still for 5 s
+    Technical --> Clear: fault input clears
+  }
+  note right of TechnicalOverlay
+    Independent fault flag.
+    Critical display outranks technical.
+    After critical clears, active technical displays cyan.
+  end note

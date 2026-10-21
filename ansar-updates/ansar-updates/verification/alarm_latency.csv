@@ -1,0 +1,1 @@
+run_id,trial_id,alarm_type,mode,independent_due_s,internal_transition_s,led_onset_s,audio_onset_s,pulse_count,ack_s,effective_turn_s,clear_s,dashboard_onset_s,phone_receipt_s,delivery_failed,notes

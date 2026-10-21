@@ -1,0 +1,23 @@
+sequenceDiagram
+  participant I as IMU
+  participant P as Pico
+  participant O as LED / sound
+  participant S as Laptop service
+  participant D as SQLite
+  participant B as Browser
+  participant N as Phone
+  loop ~20 Hz
+    P->>I: Read acceleration
+    I-->>P: ax, ay, az or error
+    P->>P: Filter, validate, classify, qualify dwell, update timer
+    P->>O: Update local alarm
+  end
+  P->>S: JSON summary and events (~1 Hz)
+  S->>D: Insert sample and event rows
+  opt Raised alert and NTFY_TOPIC configured
+    S->>N: HTTPS notification request
+  end
+  B->>S: GET /api/status (~1 Hz)
+  S->>D: Read events and shift summary
+  S-->>B: latest data, age, shift, events
+  Note over B: >5 s without fresh data: stale indication

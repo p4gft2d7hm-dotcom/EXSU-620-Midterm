@@ -1,0 +1,12 @@
+flowchart LR
+  P[Phantom / torso jig] --> M[Keyed patch mount]
+  M --> I[LSM6DS3TR-C]
+  I -->|I2C GP8 / GP9| C[Pico: filter, angles, turn and timer]
+  B[GP20 button] --> C
+  C --> L[GP16 NeoPixel]
+  C --> A[GP18 amplifier / speaker]
+  C -->|USB JSON ~1 Hz| S[Laptop service]
+  S --> D[(SQLite)]
+  S --> W[Browser dashboard]
+  S -->|Optional ntfy| N[Phone]
+  R[Protractor + scored video] -. independent reference .-> P

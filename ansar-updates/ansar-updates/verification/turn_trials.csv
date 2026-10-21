@@ -1,0 +1,1 @@
+run_id,trial_id,phase,video_file,scorer,truth_effective,truth_direction,movement_onset_s,settled_s,truth_dwell_completion_s,detected_events_count,first_detection_s,TP_FP_TN_FN,early_detection,duplicate_detection,fault_injected,notes

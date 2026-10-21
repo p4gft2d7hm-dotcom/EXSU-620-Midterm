@@ -1,0 +1,36 @@
+pass  test_advisory_then_critical_then_latch
+pass  test_below_hysteresis_release_resets_dwell
+pass  test_bench_mode_allows_phantom_without_stillness_alarm
+pass  test_bench_mode_keeps_sensor_fault_alarm_and_resets_dwell
+pass  test_brief_turn_is_partial
+pass  test_creeping_shifts_count_once_they_reach_the_angle
+pass  test_early_turn_resets_audit_deadline
+pass  test_expiry_audit_continues_while_alarm_latched_after_turn
+pass  test_expiry_audit_reports_each_full_interval_once
+pass  test_held_turn_counts
+pass  test_hysteresis_band_cannot_start_or_complete_turn
+pass  test_hysteresis_band_pauses_without_qualifying_time
+pass  test_invalid_upright_resumes_overdue_clock
+pass  test_motionless_patch_raises_technical
+pass  test_noise_near_threshold_does_not_flood_partial_events
+pass  test_opposite_sides_do_not_share_dwell
+pass  test_out_of_bed_counts_and_holds_the_clock
+pass  test_sensor_gap_cannot_join_two_half_turns
+pass  test_small_shift_is_not_a_turn
+pass  test_stationary_phantom_turn_counts_despite_technical_flag
+pass  test_turn_during_advisory_returns_to_normal
+21 tests passed
+
+SQLite helper check (in memory; no web/serial/network):
+PASS SQLite persistence: two audit expiries, one critical entry; no audit push
+Legacy compliance formula is unchanged; HTTP/serial/network are not tested.
+
+Regression contrast against original baseline:
+test_hysteresis_band_pauses_without_qualifying_time: FAILS on original baseline, passes in local proposal
+test_sensor_gap_cannot_join_two_half_turns: FAILS on original baseline, passes in local proposal
+test_opposite_sides_do_not_share_dwell: FAILS on original baseline, passes in local proposal
+test_invalid_upright_resumes_overdue_clock: FAILS on original baseline, passes in local proposal
+test_hysteresis_band_cannot_start_or_complete_turn: FAILS on original baseline, passes in local proposal
+
+Environment: bundled desktop Python, 20 October 2026.
+No physical device, serial service, network notification or browser interaction tested by this command.

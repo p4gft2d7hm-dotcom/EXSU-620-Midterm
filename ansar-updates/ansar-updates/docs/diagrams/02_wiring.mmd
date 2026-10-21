@@ -1,0 +1,15 @@
+flowchart LR
+  P[Pico 2 W]
+  P -->|GP8 SDA / GP9 SCL| I[Sensor I2C]
+  P -->|GP16 DATA| L[NeoPixel DIN]
+  P -->|GP18 PWM| A[Amplifier A+]
+  A --> S[Compatible speaker]
+  B[Button to GND] -->|GP20 pull-up| P
+  U[Laptop USB] <--> P
+  G[Common GND] --- P
+  G --- I
+  G --- L
+  G --- A
+  V[Verify actual module power ratings before wiring] -.-> I
+  V -.-> L
+  V -.-> A

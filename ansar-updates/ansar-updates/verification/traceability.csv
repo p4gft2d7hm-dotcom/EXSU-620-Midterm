@@ -1,0 +1,10 @@
+CR_id,ER_id,design_feature,implementation,test_id,evidence,verdict,open_action
+CR-1,ER-01,Gravity based angles,code.py and turnlogic.py,T01,,NOT_TESTED,Collect jig calibration and residuals
+CR-1,ER-02,20 Hz sampling and hysteretic classifier,code.py and turnlogic.py,T02,,NOT_TESTED,Measure raw rate and labelled classification latency
+CR-3,ER-03,Hysteresis pause without band credit and same side dwell,local turnlogic.py,T03,software_test_results.txt,NOT_VERIFIED,Justify thresholds and run independent video trials
+CR-2 and CR-3,ER-04,Turn interval and thresholds,turnlogic.py,T04,software_test_results.txt,NOT_VERIFIED,Run full duration independent timing trials
+CR-2,ER-05,Local alarms and critical latch,code.py and turnlogic.py,T05,software_test_results.txt,NOT_VERIFIED,Verify LED sound button and output latencies
+CR-1 and CR-2 and CR-3,ER-06,Fault gate and stale telemetry,turnlogic.py code.py dashboard.html,T06,software_test_results.txt,NOT_VERIFIED,Test physical faults and stillness specificity
+CR-4,ER-07,Independent expiry audit with legacy statistics and upright proxy,server.py turnlogic.py,T07,software_test_results.txt,OPEN_DESIGN_GAP,Resolve compliance definition true bed exit time integration and shift carryover
+CR-2 and CR-4,ER-05 and ER-07,Serial persistence local independence phone push,server.py code.py,T08,,BLOCKED_REMOTE,Implement registered-recipient consent timestamp and withdrawal enforcement before remote tests
+CR-1,ER-08,Wearable size mass attachment and removal,Mechanical assembly not yet built,T09,,NOT_TESTED,Measure complete assembly and run mounting and removal trials

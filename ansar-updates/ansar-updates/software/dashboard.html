@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Repositioning patch</title>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{
+  --paper:#F2F5F6; --panel:#FFFFFF; --ink:#16242B; --quiet:#5C6B73; --line:#D5DCDF;
+  --normal:#1F7A4D; --advisory:#B36B00; --critical:#B3261E; --technical:#0E7C8C; --nodata:#5C6B73;
+  --state:var(--nodata);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);
+  font-family:"Atkinson Hyperlegible",system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.45}
+main{max-width:980px;margin:0 auto;padding:20px}
+.now{background:var(--state);color:#fff;border-radius:10px;padding:22px 26px;
+  display:flex;flex-wrap:wrap;gap:12px 40px;align-items:flex-end;justify-content:space-between}
+.now h1{margin:0;font-size:clamp(2.4rem,7vw,4rem);line-height:1;font-weight:700}
+.now p{margin:6px 0 0;font-size:1.1rem}
+.due{text-align:right}
+.due strong{display:block;font-size:clamp(1.8rem,5vw,2.8rem);line-height:1;font-variant-numeric:tabular-nums}
+.bar{position:relative;height:14px;background:var(--line);border-radius:7px;margin:14px 0 4px;overflow:hidden}
+.bar i{position:absolute;inset:0 auto 0 0;width:0;background:var(--state)}
+.bar b{position:absolute;top:0;bottom:0;width:2px;background:var(--ink)}
+.scale{display:flex;justify-content:space-between;color:var(--quiet);font-size:.9rem}
+section{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px 20px;margin-top:16px}
+h2{margin:0 0 10px;font-size:1.05rem;font-weight:700}
+.figures{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:14px}
+.figures div strong{display:block;font-size:1.9rem;line-height:1.1;font-variant-numeric:tabular-nums}
+.figures div span{color:var(--quiet)}
+table{width:100%;border-collapse:collapse}
+td{padding:6px 0;border-top:1px solid var(--line)}
+td:first-child{width:6.5em;color:var(--quiet);font-variant-numeric:tabular-nums}
+td:last-child{color:var(--quiet);text-align:right}
+button{font:inherit;padding:8px 14px;border:1px solid var(--ink);border-radius:8px;background:var(--panel);color:var(--ink);cursor:pointer}
+button:focus-visible{outline:3px solid var(--technical);outline-offset:2px}
+.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:12px}
+.top span{color:var(--quiet)}
+.chart{height:220px}
+</style>
+</head>
+<body>
+<main>
+  <div class="top">
+    <span id="link">Waiting for the patch</span>
+    <span>
+      <button id="turn" hidden>Turn patient (simulation)</button>
+      <button id="ack" hidden>Acknowledge alarm (simulation)</button>
+      <button id="sound">Turn on alert sound</button>
+    </span>
+  </div>
+
+  <div class="now">
+    <div>
+      <h1 id="pos">No data</h1>
+      <p id="state">Start the patch to see the patient's position</p>
+    </div>
+    <div class="due">
+      <strong id="count">--:--</strong>
+      <span id="countlabel">until the next turn is due</span>
+    </div>
+  </div>
+  <div class="bar"><i id="fill"></i><b id="mark"></b></div>
+  <div class="scale" style="position:relative"><span>Last effective turn</span><span style="position:absolute;left:87.5%;transform:translateX(-50%)">Advisory</span><span>Turn due</span></div>
+
+  <section>
+    <h2>Roll angle, last 10 minutes</h2>
+    <div class="chart"><canvas id="trace"></canvas></div>
+  </section>
+
+  <section>
+    <h2 id="shifttitle">This shift</h2>
+    <div class="figures">
+      <div><strong id="s-comp">-</strong><span>legacy event ratio (unvalidated)</span></div>
+      <div><strong id="s-turns">-</strong><span>effective turns</span></div>
+      <div><strong id="s-late">-</strong><span>critical alarm entries</span></div>
+      <div><strong id="s-audit">-</strong><span>audited interval expiries</span></div>
+      <div><strong id="s-part">-</strong><span>partial turns rejected</span></div>
+      <div><strong id="s-oob">-</strong><span>upright minutes (proxy)</span></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Recent events</h2>
+    <table><tbody id="events"><tr><td></td><td>Nothing recorded yet</td><td></td></tr></tbody></table>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const POS = {supine:"Supine", left:"Left lateral", right:"Right lateral", upright:"Upright"};
+const STATE = {
+  normal:"Within the turn interval",
+  advisory:"Turn due within 15 minutes",
+  critical:"Turn overdue. No effective turn recorded",
+  technical:"Check the patch: detached, motionless or sensor fault"
+};
+const EVENT = {
+  interval_expired:"Interval expiry (audit)", configuration:"Run configuration",
+  turn:"Effective turn", partial:"Partial turn rejected", advisory:"Advisory raised",
+  critical:"Turn interval expired", ack:"Acknowledged at the bedside",
+  critical_clear:"Critical alarm cleared", technical:"Technical alarm",
+  technical_clear:"Technical alarm cleared", position:"Position changed"
+};
+
+function clock(s){
+  s = Math.max(0, Math.round(s));
+  const h = Math.floor(s/3600), m = Math.floor(s%3600/60), sec = s%60;
+  return (h ? h + ":" + String(m).padStart(2,"0") : m) + ":" + String(sec).padStart(2,"0");
+}
+
+/* ---- alert sound ---- */
+let audio = null, lastBeep = 0, soundOn = false;
+$("sound").onclick = () => {
+  soundOn = !soundOn;
+  if(soundOn){
+    audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+    audio.resume();
+  }else if(audio){ audio.suspend(); }
+  $("sound").textContent = soundOn ? "Turn off alert sound" : "Turn on alert sound";
+};
+$("ack").onclick = () => fetch("/api/ack", {method:"POST"});
+$("turn").onclick = () => fetch("/api/turn", {method:"POST"});
+function beep(count, freq){
+  if(!audio || !soundOn) return;
+  for(let i=0;i<count;i++){
+    const o = audio.createOscillator(), g = audio.createGain();
+    o.frequency.value = freq; g.gain.value = 0.15;
+    o.connect(g); g.connect(audio.destination);
+    const t = audio.currentTime + i*0.3;
+    o.start(t); o.stop(t+0.18);
+  }
+}
+function sound(d){
+  const now = Date.now();
+  if(d.state==="critical" && !d.acked && now-lastBeep > 5000){ beep(10,1200); lastBeep = now; }
+  else if(d.state==="advisory" && now-lastBeep > 30000){ beep(3,880); lastBeep = now; }
+}
+
+/* ---- chart ---- */
+const chart = new Chart($("trace"), {
+  type:"line",
+  data:{datasets:[{data:[], borderColor:"#16242B", borderWidth:1.5, pointRadius:0, stepped:false}]},
+  options:{
+    animation:false, maintainAspectRatio:false, parsing:false,
+    plugins:{legend:{display:false}},
+    scales:{
+      x:{type:"linear", ticks:{callback:v => new Date(v).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}), maxTicksLimit:6}},
+      y:{min:-100, max:100, ticks:{stepSize:30, callback:v => v===90?"Right 90°":v===-90?"Left 90°":v+"°"}}
+    }
+  }
+});
+
+async function history(){
+  try{
+    const rows = await (await fetch("/api/history?minutes=10")).json();
+    chart.data.datasets[0].data = rows.map(r => ({x:r.ts*1000, y:r.roll}));
+    chart.update();
+  }catch(e){}
+}
+
+/* ---- status ---- */
+async function status(){
+  let s;
+  try{ s = await (await fetch("/api/status")).json(); }
+  catch(e){ $("link").textContent = "The laptop service is not answering"; return; }
+
+  $("turn").hidden = !s.simulated;
+  $("ack").hidden = !(s.simulated && s.latest && s.latest.state==="critical" && !s.latest.acked);
+  const d = s.latest, stale = !d || s.age_s > 5;
+  const root = document.documentElement.style;
+  if(stale){
+    root.setProperty("--state","var(--nodata)");
+    $("link").textContent = d ? "No data from the patch for " + Math.round(s.age_s) + " s. Check the USB cable" : "Waiting for the patch";
+    if(!d){ return; }
+  }else{
+    $("link").textContent = d.bench_mode ? "BENCH MODE: stillness check disabled; sensor faults active" : "Patch connected";
+    root.setProperty("--state","var(--"+d.state+")");
+    sound(d);
+  }
+  $("pos").textContent = POS[d.pos] || d.pos;
+  const waiting = d.state==="critical" && d.acked;
+  $("state").textContent = stale ? "Last known position"
+    : waiting ? "Acknowledged. Sound is off. Waiting for an effective turn" : STATE[d.state];
+  const overdue = d.remaining_s < 0;
+  $("count").textContent = clock(Math.abs(d.remaining_s));
+  $("countlabel").textContent = overdue ? "overdue. The clock resets when the patient is turned" : "until the next turn is due";
+  const used = Math.min(1, Math.max(0, 1 - d.remaining_s/d.interval_s));
+  $("fill").style.width = (used*100)+"%";
+  $("mark").style.left = "87.5%";
+
+  const sh = s.shift;
+  $("shifttitle").textContent = "This shift, since " + sh.shift_start;
+  $("s-comp").textContent = sh.compliance_pct===null ? "-" : sh.compliance_pct+"%";
+  $("s-turns").textContent = sh.turns;
+  $("s-late").textContent = sh.late_intervals;
+  $("s-audit").textContent = sh.audited_expiries === undefined ? "-" : sh.audited_expiries;
+  $("s-part").textContent = sh.partial_turns;
+  $("s-oob").textContent = sh.out_of_bed_min;
+
+  if(s.events.length){
+    $("events").innerHTML = s.events.map(e =>
+      "<tr><td>"+new Date(e.ts*1000).toLocaleTimeString()+"</td><td>"+(EVENT[e.type]||e.type)+
+      "</td><td>"+(POS[e.detail]||e.detail||"")+"</td></tr>").join("");
+  }
+}
+status(); history();
+setInterval(status, 1000);
+setInterval(history, 5000);
+</script>
+</body>
+</html>

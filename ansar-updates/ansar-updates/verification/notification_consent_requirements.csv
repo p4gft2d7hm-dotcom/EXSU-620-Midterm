@@ -1,0 +1,6 @@
+requirement_id,requirement,status,verification
+N01,Recipient is a registered course participant,NOT_IMPLEMENTED,Reject unregistered recipient
+N02,Consent timestamp UTC scope and channel are retained,NOT_IMPLEMENTED,Inspect persisted consent record
+N03,Active consent checked before every send and withdrawal enforced,NOT_IMPLEMENTED,Reject withdrawn recipient
+N04,Provider choice justified against listed resources,OPEN,Review rationale and any required acceptance
+N05,No patient identifiers in payload or evidence,REQUIRES_REVIEW,Inspect synthetic test payloads
